@@ -35,7 +35,7 @@ const BOARD_HEIGHT: u16 = 20;
 impl<W: Write> Game<W> {
     pub fn new(x: u16, y: u16, w: W) -> Self {
         let next_type = Self::next_tetrimino();
-        let (next_x, next_y) = Self::apply_initial_displacement(next_type, 8, 0);
+        let (next_x, next_y) = Self::apply_initial_displacement(next_type, 3, 0);
         let current_tetrimino = CurrentTetrimino {
             tetrimino: Tetrimino::new(Self::next_tetrimino()),
             x: next_x,
@@ -92,20 +92,31 @@ impl<W: Write> Game<W> {
         let (init_x, init_y) = self.tetris_board_xy();
         let mut y = init_y + 1;
 
-        for row in &self.board.blocks {
-            let mut x = init_x + 1;
-            for col in row {
+        // draw the board
+        for (y, row) in self.board.blocks.iter().enumerate() {
+            for (x, col) in row.iter().enumerate() {
                 match col {
                     Block::Free => {
-                        write!(self.stdout, "{}{}  ", cursor::Goto(x, y), style::Reset)?;
+                        write!(self.stdout, "{}{}  ", cursor::Goto(init_x + (x*2) as u16 + 1, init_y + y as u16 + 1), style::Reset)?;
                     }
                     Block::Occupied(rgb) => {
-                        write!(self.stdout, "{}{}  ", cursor::Goto(x, y), Bg(*rgb))?;
+                        write!(self.stdout, "{}{}  ", cursor::Goto(init_x + (x*2) as u16 + 1, init_y + y as u16 + 1), Bg(*rgb))?;
                     }
                 }
-                x += 2;
             }
-            y += 1;
+        }
+
+        // draw current tetrimino
+        let tetrimino_block = self.current_tetrimino.tetrimino.to_block();
+        for (y, row) in tetrimino_block.iter().enumerate() {
+            for (x, col) in row.iter().enumerate() {
+                if *col == 1 {
+                    let x = init_x + (x * 2) as u16 + (self.current_tetrimino.x * 2) + 1;
+                    let y = init_y + y as u16 + self.current_tetrimino.y + 1;
+                    let tetrimino_color = self.current_tetrimino.tetrimino.to_color();
+                    write!(self.stdout, "{}{}  ", cursor::Goto(x, y), Bg(tetrimino_color))?;
+                }
+            }
         }
 
         write!(self.stdout, "{}", style::Reset)
