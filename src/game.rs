@@ -3,12 +3,13 @@ use std::thread;
 use std::time::Duration;
 
 use termion::{clear, cursor, style};
-use termion::color::{Bg, Blue, Color, Cyan, Green, Red, Rgb, Yellow};
+use termion::color::{Bg, Rgb};
 
 use crate::graphics::*;
 use termion::input::TermRead;
 use termion::event::Key;
 use termion::input::Keys;
+use termion::raw::{IntoRawMode, RawTerminal};
 
 pub struct Game<R: Read, W: Write> {
     x: u16,
@@ -25,8 +26,16 @@ pub struct Game<R: Read, W: Write> {
 
 struct CurrentTetrimino {
     tetrimino: Tetrimino,
-    x: u16,
-    y: u16,
+
+    // These must be isize because tetrimino's grid can go out of bound
+    // e.g block L has this shape on the left.
+    //
+    // 0 1 0 0      If this block is at the far left corner
+    // 0 1 0 0      the x will be -1, doesn't have a good solution for this yet
+    // 0 1 1 1      And this is why there are a lot of type casts in the code
+    // 0 0 0 0      Not great
+    x: isize,
+    y: isize,
 }
 
 const LEFT_PANEL_WIDTH: u16 = 17;
@@ -39,7 +48,7 @@ const BOARD_HEIGHT: u16 = 20;
 
 
 impl<R: Read, W: Write> Game<R, W> {
-    pub fn new(x: u16, y: u16, r: R, w: W) -> Self {
+    pub fn new(x: u16, y: u16, r: R, w: W) -> Game<R, RawTerminal<W>> {
         Game {
             x,
             y,
@@ -47,7 +56,7 @@ impl<R: Read, W: Write> Game<R, W> {
             lines: 0,
             board: Board::new(),
             stdin: r.keys(),
-            stdout: w,
+            stdout: w.into_raw_mode().unwrap(),
             current_tetrimino: Self::next_tetrimino(),
             elapsed: Duration::from_millis(0),
             fall_rate: Duration::from_millis(500),
@@ -57,11 +66,40 @@ impl<R: Read, W: Write> Game<R, W> {
     pub fn start(&mut self) -> Result<()> {
         write!(&mut self.stdout, "{}{}{}{}", clear::All, style::Reset, cursor::Goto(1, 1), cursor::Hide)?;
 
-        loop {
+        'main: loop {
             thread::sleep(Duration::from_millis(50));
             match self.stdin.next() {
                 Some(Ok(key)) => {
-                    self.handle_key_input(key)
+                    match key {
+                        Key::Char('j') | Key::Left => {
+                            self.handle_tetrimino_move(-1, 0);
+                        }
+                        Key::Char('l') | Key::Right => {
+                            self.handle_tetrimino_move(1, 0);
+                        }
+                        Key::Char('k') | Key::Down => {
+                            self.handle_tetrimino_move(0, 1);
+                        }
+                        Key::Char('x') => {
+                            self.current_tetrimino.tetrimino.rotate_clockwise();
+                            if !self.can_fit_tetrimino(self.current_tetrimino.x as isize,
+                                                       self.current_tetrimino.y as isize,
+                                                       self.current_tetrimino.tetrimino.to_block()) {
+                                self.current_tetrimino.tetrimino.rotate_counter_clockwise();
+                            }
+                        },
+                        Key::Char('z') => {
+                            self.current_tetrimino.tetrimino.rotate_counter_clockwise();
+                            if !self.can_fit_tetrimino(self.current_tetrimino.x as isize,
+                                                       self.current_tetrimino.y as isize,
+                                                       self.current_tetrimino.tetrimino.to_block()) {
+                                self.current_tetrimino.tetrimino.rotate_clockwise();
+                            }
+                        }
+                        Key::Char('c') => {}
+                        Key::Char('q') => break 'main,
+                        _ => {}
+                    }
                 }
                 _ => {}
             }
@@ -74,6 +112,9 @@ impl<R: Read, W: Write> Game<R, W> {
 
             self.update(Duration::from_millis(50));
         }
+        write!(self.stdout, "{}{}{}{}", clear::All, style::Reset, cursor::Goto(1, 1), cursor::Show)?;
+
+        Ok(())
     }
 
     fn update(&mut self, elapsed: Duration) {
@@ -85,43 +126,29 @@ impl<R: Read, W: Write> Game<R, W> {
         }
     }
 
-    fn handle_key_input(&mut self, key: Key) {
-        match key {
-            Key::Char('j') | Key::Left => {
-                self.handle_tetrimino_move(-1, 0);
-            }
-            Key::Char('l') | Key::Right => {
-                self.handle_tetrimino_move(1, 0);
-            }
-            Key::Char('k') | Key::Down => {}
-            Key::Char('x') | Key::Char('z') => {}
-            Key::Char('c') => {}
-            _ => {}
-        }
-    }
-
     fn handle_tetrimino_move(&mut self, dx: isize, dy: isize) {
-        // might overflow
-        if self.can_fit_tetrimino(self.current_tetrimino.x as isize + dx,
-                                  self.current_tetrimino.y as isize + dy,
-                                  self.current_tetrimino.tetrimino.to_block()) {
-            self.current_tetrimino.x = (self.current_tetrimino.x as isize + dx) as u16;
+        let new_x = self.current_tetrimino.x as isize + dx;
+        let new_y = self.current_tetrimino.y as isize + dy;
+
+        if self.can_fit_tetrimino(new_x, new_y, self.current_tetrimino.tetrimino.to_block()) {
+            self.current_tetrimino.x = new_x;
+            self.current_tetrimino.y = new_y;
         }
     }
 
-    fn can_fit_tetrimino(&self, x: isize, y: isize, block: &[[u8; 4]; 4]) -> bool {
+    fn can_fit_tetrimino(&self, block_x: isize, block_y: isize, block: &[[u8; 4]; 4]) -> bool {
         for (y, row) in block.iter().enumerate() {
             for (x, col) in row.iter().enumerate() {
                 if *col == 1 {
                     // actual co-ordinates on the board
-                    let x = x + x;
-                    let y = y + y;
+                    let x = block_x + x as isize;
+                    let y = block_y + y as isize;
 
-                    if x >= BOARD_WIDTH as usize {
+                    if x >= BOARD_WIDTH as isize || x < 0 {
                         return false;
-                    } else if y >= BOARD_HEIGHT as usize {
+                    } else if y >= BOARD_HEIGHT as isize || y < 0 {
                         return false;
-                    } else if let Block::Occupied(_) = self.board.blocks[y][x] {
+                    } else if let Block::Occupied(_) = self.board.blocks[y as usize][x as usize] {
                         return false;
                     }
                 }
@@ -138,7 +165,7 @@ impl<R: Read, W: Write> Game<R, W> {
 
         for (y, row) in tetrimino_block.iter().enumerate() {
             for (x, col) in row.iter().enumerate() {
-                if *col == 1 && self.should_fuse_with_ground(x, y) {
+                if *col == 1 && self.should_fuse_with_ground(x as isize, y as isize) {
                     should_fuse = true;
                     break;
                 }
@@ -150,9 +177,9 @@ impl<R: Read, W: Write> Game<R, W> {
                 for (x, col) in row.iter().enumerate() {
                     if *col == 1 {
                         let rgb = self.current_tetrimino.tetrimino.to_color();
-                        let x = self.current_tetrimino.x as usize + x;
-                        let y = self.current_tetrimino.y as usize + y;
-                        self.board.blocks[y][x] = Block::Occupied(rgb);
+                        let x = self.current_tetrimino.x + x as isize;
+                        let y = self.current_tetrimino.y + y as isize;
+                        self.board.blocks[y as usize][x as usize] = Block::Occupied(rgb);
                     }
                 }
             }
@@ -162,17 +189,17 @@ impl<R: Read, W: Write> Game<R, W> {
     }
 
     // check whether current tetrimino should be fused with ground if tetrimino_block[y][x] == 1
-    fn should_fuse_with_ground(&self, x: usize, y: usize) -> bool {
-        let x = self.current_tetrimino.x as usize + x;
-        let next_y = self.current_tetrimino.y as usize + y + 1;
+    fn should_fuse_with_ground(&self, x: isize, y: isize) -> bool {
+        let x = self.current_tetrimino.x + x;
+        let next_y = self.current_tetrimino.y + y + 1;
 
-        if next_y == BOARD_HEIGHT as usize {
+        if next_y == BOARD_HEIGHT as isize {
             return true;
         }
 
-        match self.board.blocks.get(next_y) {
+        match self.board.blocks.get(next_y as usize) {
             Some(row) => {
-                if let Some(Block::Occupied(_)) = row.get(x) {
+                if let Some(Block::Occupied(_)) = row.get(x as usize) {
                     true
                 } else {
                     false
@@ -198,7 +225,8 @@ impl<R: Read, W: Write> Game<R, W> {
         write!(self.stdout, "{}right  l, →", cursor::Goto(x + 3, y + 5))?;
         write!(self.stdout, "{}drop   k, ↓", cursor::Goto(x + 3, y + 6))?;
         write!(self.stdout, "{}rotate x, z", cursor::Goto(x + 3, y + 7))?;
-        write!(self.stdout, "{}hold   c", cursor::Goto(x + 3, y + 8))
+        write!(self.stdout, "{}hold   c", cursor::Goto(x + 3, y + 8))?;
+        write!(self.stdout, "{}quit   q", cursor::Goto(x + 3, y + 9))
     }
 
     fn draw_board(&mut self) -> Result<()> {
@@ -206,7 +234,6 @@ impl<R: Read, W: Write> Game<R, W> {
         create_window(&mut self.stdout, x, y, (BOARD_WIDTH * 2) + 2, BOARD_HEIGHT + 2)?;
 
         let (init_x, init_y) = self.tetris_board_xy();
-        let mut y = init_y + 1;
 
         // draw the board
         for (y, row) in self.board.blocks.iter().enumerate() {
@@ -227,10 +254,10 @@ impl<R: Read, W: Write> Game<R, W> {
         for (y, row) in tetrimino_block.iter().enumerate() {
             for (x, col) in row.iter().enumerate() {
                 if *col == 1 {
-                    let x = init_x + (x * 2) as u16 + (self.current_tetrimino.x * 2) + 1;
-                    let y = init_y + y as u16 + self.current_tetrimino.y + 1;
+                    let x = init_x as isize + x as isize * 2 + self.current_tetrimino.x * 2 + 1;
+                    let y = init_y as isize + y as isize + self.current_tetrimino.y + 1;
                     let tetrimino_color = self.current_tetrimino.tetrimino.to_color();
-                    write!(self.stdout, "{}{}  ", cursor::Goto(x, y), Bg(tetrimino_color))?;
+                    write!(self.stdout, "{}{}  ", cursor::Goto(x as u16, y as u16), Bg(tetrimino_color))?;
                 }
             }
         }
@@ -250,7 +277,7 @@ impl<R: Read, W: Write> Game<R, W> {
         current_tetrimino
     }
 
-    fn apply_initial_displacement(tetrimino_type: &TetriminoType, x: u16, y: u16) -> (u16, u16) {
+    fn apply_initial_displacement(tetrimino_type: &TetriminoType, x: isize, y: isize) -> (isize, isize) {
         match tetrimino_type {
             TetriminoType::I => (x, y - 1),
             _ => (x, y)
