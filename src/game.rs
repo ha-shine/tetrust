@@ -15,6 +15,8 @@ pub struct Game<W: Write> {
     board: Board,
     stdout: W,
     current_tetrimino: CurrentTetrimino,
+    elapsed: Duration,
+    fall_rate: Duration
 }
 
 struct CurrentTetrimino {
@@ -34,13 +36,6 @@ const BOARD_HEIGHT: u16 = 20;
 
 impl<W: Write> Game<W> {
     pub fn new(x: u16, y: u16, w: W) -> Self {
-        let next_type = Self::next_tetrimino();
-        let (next_x, next_y) = Self::apply_initial_displacement(next_type, 3, 0);
-        let current_tetrimino = CurrentTetrimino {
-            tetrimino: Tetrimino::new(Self::next_tetrimino()),
-            x: next_x,
-            y: next_y
-        };
 
         Game {
             x,
@@ -49,7 +44,9 @@ impl<W: Write> Game<W> {
             lines: 0,
             board: Board::new(),
             stdout: w,
-            current_tetrimino,
+            current_tetrimino: Self::next_tetrimino(),
+            elapsed: Duration::from_millis(0),
+            fall_rate: Duration::from_millis(500),
         }
     }
 
@@ -58,11 +55,72 @@ impl<W: Write> Game<W> {
 
         loop {
             thread::sleep(Duration::from_millis(50));
-
+            self.try_fuse_with_ground();
             self.draw_player_score()?;
             self.draw_help()?;
             self.draw_board()?;
             self.stdout.flush()?;
+
+            self.update(Duration::from_millis(50));
+        }
+    }
+
+    fn update(&mut self, elapsed: Duration) {
+        self.elapsed += elapsed;
+
+        if self.elapsed >= self.fall_rate {
+            self.elapsed -= self.fall_rate;
+            self.current_tetrimino.y += 1;
+        }
+    }
+
+    fn try_fuse_with_ground(&mut self) {
+        let tetrimino_block = self.current_tetrimino.tetrimino.to_block();
+
+        let mut should_fuse = false;
+
+        for (y, row) in tetrimino_block.iter().enumerate() {
+            for (x, col) in row.iter().enumerate() {
+                if *col == 1 && self.should_fuse_with_ground(x, y) {
+                    should_fuse = true;
+                    break;
+                }
+            }
+        }
+
+        if should_fuse {
+            for (y, row) in tetrimino_block.iter().enumerate() {
+                for (x, col) in row.iter().enumerate() {
+                    if *col == 1 {
+                        let rgb = self.current_tetrimino.tetrimino.to_color();
+                        let x = self.current_tetrimino.x as usize + x;
+                        let y = self.current_tetrimino.y as usize + y;
+                        self.board.blocks[y][x] = Block::Occupied(rgb);
+                    }
+                }
+            }
+
+            self.current_tetrimino = Self::next_tetrimino()
+        }
+    }
+
+    fn should_fuse_with_ground(&self, x: usize, y: usize) -> bool {
+        let x = self.current_tetrimino.x as usize + x;
+        let next_y = self.current_tetrimino.y as usize + y + 1;
+
+        if next_y == BOARD_HEIGHT as usize {
+            return true;
+        }
+
+        match self.board.blocks.get(next_y) {
+            Some(row) => {
+                if let Some(Block::Occupied(_)) = row.get(x) {
+                    true
+                } else {
+                    false
+                }
+            },
+            _ => false
         }
     }
 
@@ -122,11 +180,19 @@ impl<W: Write> Game<W> {
         write!(self.stdout, "{}", style::Reset)
     }
 
-    fn next_tetrimino() -> TetriminoType {
-        TetriminoType::L
+    fn next_tetrimino() -> CurrentTetrimino {
+        let next_type = TetriminoType::L;
+        let (next_x, next_y) = Self::apply_initial_displacement(&next_type, 3, 0);
+        let current_tetrimino = CurrentTetrimino {
+            tetrimino: Tetrimino::new(next_type),
+            x: next_x,
+            y: next_y
+        };
+
+        current_tetrimino
     }
 
-    fn apply_initial_displacement(tetrimino_type: TetriminoType, x: u16, y: u16) -> (u16, u16) {
+    fn apply_initial_displacement(tetrimino_type: &TetriminoType, x: u16, y: u16) -> (u16, u16) {
         match tetrimino_type {
             TetriminoType::I => (x, y-1),
             _ => (x, y)
@@ -184,7 +250,7 @@ impl Tetrimino {
         Tetrimino { tetrimino_type, state: 0 }
     }
 
-    pub fn to_color(&self) -> impl Color {
+    pub fn to_color(&self) -> Rgb {
         match self.tetrimino_type {
             TetriminoType::I => Rgb(0, 255, 255),
             TetriminoType::O => Rgb(255, 255, 0),
