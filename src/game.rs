@@ -1,28 +1,32 @@
+use std::io::{Read, Result, Write};
 use std::thread;
-use std::io::{Result, Write};
 use std::time::Duration;
 
 use termion::{clear, cursor, style};
-use termion::color::{Bg, Blue, Yellow, Color, Cyan, Green, Red, Rgb};
+use termion::color::{Bg, Blue, Color, Cyan, Green, Red, Rgb, Yellow};
 
 use crate::graphics::*;
+use termion::input::TermRead;
+use termion::event::Key;
+use termion::input::Keys;
 
-pub struct Game<W: Write> {
+pub struct Game<R: Read, W: Write> {
     x: u16,
     y: u16,
     score: u16,
     lines: u16,
     board: Board,
+    stdin: Keys<R>,
     stdout: W,
     current_tetrimino: CurrentTetrimino,
     elapsed: Duration,
-    fall_rate: Duration
+    fall_rate: Duration,
 }
 
 struct CurrentTetrimino {
     tetrimino: Tetrimino,
     x: u16,
-    y: u16
+    y: u16,
 }
 
 const LEFT_PANEL_WIDTH: u16 = 17;
@@ -34,15 +38,15 @@ const BOARD_WIDTH: u16 = 10;
 const BOARD_HEIGHT: u16 = 20;
 
 
-impl<W: Write> Game<W> {
-    pub fn new(x: u16, y: u16, w: W) -> Self {
-
+impl<R: Read, W: Write> Game<R, W> {
+    pub fn new(x: u16, y: u16, r: R, w: W) -> Self {
         Game {
             x,
             y,
             score: 0,
             lines: 0,
             board: Board::new(),
+            stdin: r.keys(),
             stdout: w,
             current_tetrimino: Self::next_tetrimino(),
             elapsed: Duration::from_millis(0),
@@ -51,10 +55,17 @@ impl<W: Write> Game<W> {
     }
 
     pub fn start(&mut self) -> Result<()> {
-        write!(&mut self.stdout, "{}{}{}", clear::All, cursor::Goto(1, 1), cursor::Hide)?;
+        write!(&mut self.stdout, "{}{}{}{}", clear::All, style::Reset, cursor::Goto(1, 1), cursor::Hide)?;
 
         loop {
             thread::sleep(Duration::from_millis(50));
+            match self.stdin.next() {
+                Some(Ok(key)) => {
+                    self.handle_key_input(key)
+                }
+                _ => {}
+            }
+
             self.try_fuse_with_ground();
             self.draw_player_score()?;
             self.draw_help()?;
@@ -72,6 +83,52 @@ impl<W: Write> Game<W> {
             self.elapsed -= self.fall_rate;
             self.current_tetrimino.y += 1;
         }
+    }
+
+    fn handle_key_input(&mut self, key: Key) {
+        match key {
+            Key::Char('j') | Key::Left => {
+                self.handle_tetrimino_move(-1, 0);
+            }
+            Key::Char('l') | Key::Right => {
+                self.handle_tetrimino_move(1, 0);
+            }
+            Key::Char('k') | Key::Down => {}
+            Key::Char('x') | Key::Char('z') => {}
+            Key::Char('c') => {}
+            _ => {}
+        }
+    }
+
+    fn handle_tetrimino_move(&mut self, dx: isize, dy: isize) {
+        // might overflow
+        if self.can_fit_tetrimino(self.current_tetrimino.x as isize + dx,
+                                  self.current_tetrimino.y as isize + dy,
+                                  self.current_tetrimino.tetrimino.to_block()) {
+            self.current_tetrimino.x = (self.current_tetrimino.x as isize + dx) as u16;
+        }
+    }
+
+    fn can_fit_tetrimino(&self, x: isize, y: isize, block: &[[u8; 4]; 4]) -> bool {
+        for (y, row) in block.iter().enumerate() {
+            for (x, col) in row.iter().enumerate() {
+                if *col == 1 {
+                    // actual co-ordinates on the board
+                    let x = x + x;
+                    let y = y + y;
+
+                    if x >= BOARD_WIDTH as usize {
+                        return false;
+                    } else if y >= BOARD_HEIGHT as usize {
+                        return false;
+                    } else if let Block::Occupied(_) = self.board.blocks[y][x] {
+                        return false;
+                    }
+                }
+            }
+        }
+
+        true
     }
 
     fn try_fuse_with_ground(&mut self) {
@@ -104,6 +161,7 @@ impl<W: Write> Game<W> {
         }
     }
 
+    // check whether current tetrimino should be fused with ground if tetrimino_block[y][x] == 1
     fn should_fuse_with_ground(&self, x: usize, y: usize) -> bool {
         let x = self.current_tetrimino.x as usize + x;
         let next_y = self.current_tetrimino.y as usize + y + 1;
@@ -119,7 +177,7 @@ impl<W: Write> Game<W> {
                 } else {
                     false
                 }
-            },
+            }
             _ => false
         }
     }
@@ -155,10 +213,10 @@ impl<W: Write> Game<W> {
             for (x, col) in row.iter().enumerate() {
                 match col {
                     Block::Free => {
-                        write!(self.stdout, "{}{}  ", cursor::Goto(init_x + (x*2) as u16 + 1, init_y + y as u16 + 1), style::Reset)?;
+                        write!(self.stdout, "{}{}  ", cursor::Goto(init_x + (x * 2) as u16 + 1, init_y + y as u16 + 1), style::Reset)?;
                     }
                     Block::Occupied(rgb) => {
-                        write!(self.stdout, "{}{}  ", cursor::Goto(init_x + (x*2) as u16 + 1, init_y + y as u16 + 1), Bg(*rgb))?;
+                        write!(self.stdout, "{}{}  ", cursor::Goto(init_x + (x * 2) as u16 + 1, init_y + y as u16 + 1), Bg(*rgb))?;
                     }
                 }
             }
@@ -186,7 +244,7 @@ impl<W: Write> Game<W> {
         let current_tetrimino = CurrentTetrimino {
             tetrimino: Tetrimino::new(next_type),
             x: next_x,
-            y: next_y
+            y: next_y,
         };
 
         current_tetrimino
@@ -194,7 +252,7 @@ impl<W: Write> Game<W> {
 
     fn apply_initial_displacement(tetrimino_type: &TetriminoType, x: u16, y: u16) -> (u16, u16) {
         match tetrimino_type {
-            TetriminoType::I => (x, y-1),
+            TetriminoType::I => (x, y - 1),
             _ => (x, y)
         }
     }
@@ -443,7 +501,7 @@ impl Tetrimino {
         }
     }
 
-    pub fn rotate_left(&mut self) {
+    pub fn rotate_clockwise(&mut self) {
         if self.state == 0 {
             self.state = 3
         } else {
@@ -451,7 +509,7 @@ impl Tetrimino {
         }
     }
 
-    pub fn rotate_right(&mut self) {
+    pub fn rotate_counter_clockwise(&mut self) {
         if self.state == 3 {
             self.state = 0
         } else {
