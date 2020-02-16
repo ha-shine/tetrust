@@ -180,32 +180,6 @@ pub enum Type {
     L,
 }
 
-impl Type {
-    pub fn get_color(&self) -> Rgb {
-        match self {
-            Type::I => Rgb(0, 255, 255),
-            Type::O => Rgb(255, 255, 0),
-            Type::T => Rgb(128, 0, 128),
-            Type::S => Rgb(0, 128, 0),
-            Type::Z => Rgb(255, 0, 0),
-            Type::J => Rgb(0, 0, 255),
-            Type::L => Rgb(255, 165, 0),
-        }
-    }
-
-    pub fn get_block(&self, state: usize) -> &[[u8; 4]; 4] {
-        match self {
-            Type::I => BLOCK_I.get(state).unwrap(),
-            Type::O => &BLOCK_O,
-            Type::T => BLOCK_T.get(state).unwrap(),
-            Type::S => BLOCK_S.get(state).unwrap(),
-            Type::Z => BLOCK_Z.get(state).unwrap(),
-            Type::J => BLOCK_J.get(state).unwrap(),
-            Type::L => BLOCK_L.get(state).unwrap(),
-        }
-    }
-}
-
 pub struct Tetrimino {
     pub ttype: Type,
     pub state: usize,
@@ -216,12 +190,36 @@ impl Tetrimino {
         Tetrimino { ttype, state: 0 }
     }
 
-    pub fn get_color(&self) -> Rgb {
-        self.ttype.get_color()
+    pub fn color(&self) -> Rgb {
+        Self::color_of(self.ttype)
     }
 
-    pub fn get_block(&self) -> &[[u8; 4]; 4] {
-        self.ttype.get_block(self.state)
+    pub fn color_of(ttype: Type) -> Rgb {
+        match ttype {
+            Type::I => Rgb(0, 255, 255),
+            Type::O => Rgb(255, 255, 0),
+            Type::T => Rgb(128, 0, 128),
+            Type::S => Rgb(0, 128, 0),
+            Type::Z => Rgb(255, 0, 0),
+            Type::J => Rgb(0, 0, 255),
+            Type::L => Rgb(255, 165, 0),
+        }
+    }
+
+    pub fn block(&self) -> &[[u8; 4]; 4] {
+        Self::block_of(self.ttype, self.state)
+    }
+
+    pub fn block_of(ttype: Type, state: usize) -> &'static [[u8; 4]; 4] {
+        match ttype {
+            Type::I => BLOCK_I.get(state).unwrap(),
+            Type::O => &BLOCK_O,
+            Type::T => BLOCK_T.get(state).unwrap(),
+            Type::S => BLOCK_S.get(state).unwrap(),
+            Type::Z => BLOCK_Z.get(state).unwrap(),
+            Type::J => BLOCK_J.get(state).unwrap(),
+            Type::L => BLOCK_L.get(state).unwrap(),
+        }
     }
 
     pub fn rotate_clockwise(&self) -> Tetrimino {
@@ -230,7 +228,7 @@ impl Tetrimino {
             state: match self.state {
                 0 => 3,
                 _ => self.state - 1
-            }
+            },
         }
     }
 
@@ -240,7 +238,7 @@ impl Tetrimino {
             state: match self.state {
                 3 => 0,
                 _ => self.state + 1
-            }
+            },
         }
     }
 }
