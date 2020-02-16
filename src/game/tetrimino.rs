@@ -208,7 +208,7 @@ impl TetriminoType {
 
 pub struct Tetrimino {
     pub ttype: TetriminoType,
-    state: usize,
+    pub state: usize,
 }
 
 impl Tetrimino {
