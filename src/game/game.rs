@@ -289,7 +289,7 @@ impl<R: Read, W: Write> Game<R, W> {
     }
 
     fn draw_player_score(&mut self) -> Result<()> {
-        let (x, y) = self.player_score_xy();
+        let (x, y) = (self.x, self.y);
         create_window(&mut self.stdout, x, y, LEFT_PANEL_WIDTH, SCORE_WINDOW_HEIGHT)?;
         write!(self.stdout, "{}Score", cursor::Goto(x + 6, y + 2))?;
         write!(self.stdout, "{}score: {:04} ", cursor::Goto(x + 3, y + 4), self.score)?;
@@ -297,7 +297,7 @@ impl<R: Read, W: Write> Game<R, W> {
     }
 
     fn draw_help(&mut self) -> Result<()> {
-        let (x, y) = self.help_window_xy();
+        let (x, y) = (self.x, self.y + SCORE_WINDOW_HEIGHT + 2);
         create_window(&mut self.stdout, x, y, LEFT_PANEL_WIDTH, HELP_WINDOW_HEIGHT)?;
         write!(self.stdout, "{}Ctrls", cursor::Goto(x + 6, y + 2))?;
         write!(self.stdout, "{}left   j, ←", cursor::Goto(x + 3, y + 4))?;
@@ -309,10 +309,8 @@ impl<R: Read, W: Write> Game<R, W> {
     }
 
     fn draw_board(&mut self) -> Result<()> {
-        let (x, y) = self.tetris_board_xy();
-        create_window(&mut self.stdout, x, y, (BOARD_WIDTH * 2) + 2, BOARD_HEIGHT + 2)?;
-
-        let (init_x, init_y) = self.tetris_board_xy();
+        let (init_x, init_y) = (self.x + LEFT_PANEL_WIDTH + 1, self.y);
+        create_window(&mut self.stdout, init_x, init_y, (BOARD_WIDTH * 2) + 2, BOARD_HEIGHT + 2)?;
 
         // draw the board
         for (y, row) in self.board.blocks.iter().enumerate() {
@@ -345,7 +343,7 @@ impl<R: Read, W: Write> Game<R, W> {
     }
 
     fn draw_next(&mut self) -> Result<()> {
-        let (win_x, win_y) = self.next_window_xy();
+        let (win_x, win_y) = (self.x + LEFT_PANEL_WIDTH + BOARD_WIDTH * 2 + 3, self.y);
         create_window(&mut self.stdout, win_x, win_y, RIGHT_PANEL_WIDTH, NEXT_WINDOW_HEIGHT)?;
         write!(self.stdout, "{}Next", cursor::Goto(win_x + 4, win_y + 2))?;
 
@@ -368,7 +366,7 @@ impl<R: Read, W: Write> Game<R, W> {
     }
 
     fn draw_held(&mut self) -> Result<()> {
-        let (win_x, win_y) = self.held_window_xy();
+        let (win_x, win_y) = (self.x + LEFT_PANEL_WIDTH + BOARD_WIDTH * 2 + 3, self.y + NEXT_WINDOW_HEIGHT + 2);
         create_window(&mut self.stdout, win_x, win_y, RIGHT_PANEL_WIDTH, HELD_WINDOW_HEIGHT)?;
         write!(self.stdout, "{}Held", cursor::Goto(win_x + 4, win_y + 2))?;
 
@@ -393,42 +391,18 @@ impl<R: Read, W: Write> Game<R, W> {
     }
 
     fn initialize_tetrimino(ttype: TetriminoType) -> ActiveTetrimino {
-        let (next_x, next_y) = Self::apply_initial_displacement(&ttype, 3, 0);
+        let (x, y) = match ttype {
+            TetriminoType::I => (3, -1),
+            _ => (3, 0)
+        };
+
         let current_tetrimino = ActiveTetrimino {
             tetrimino: Tetrimino::new(ttype),
-            x: next_x,
-            y: next_y,
+            x,
+            y,
         };
 
         current_tetrimino
-    }
-
-    fn apply_initial_displacement(tetrimino_type: &TetriminoType, x: isize, y: isize) -> (isize, isize) {
-        match tetrimino_type {
-            TetriminoType::I => (x, y - 1),
-            _ => (x, y)
-        }
-    }
-
-    // placement methods
-    fn player_score_xy(&self) -> (u16, u16) {
-        (self.x, self.y)
-    }
-
-    fn help_window_xy(&self) -> (u16, u16) {
-        (self.x, self.y + SCORE_WINDOW_HEIGHT + 2)
-    }
-
-    fn tetris_board_xy(&self) -> (u16, u16) {
-        (self.x + LEFT_PANEL_WIDTH + 1, self.y)
-    }
-
-    fn next_window_xy(&self) -> (u16, u16) {
-        (self.x + LEFT_PANEL_WIDTH + BOARD_WIDTH * 2 + 3, self.y)
-    }
-
-    fn held_window_xy(&self) -> (u16, u16) {
-        (self.x + LEFT_PANEL_WIDTH + BOARD_WIDTH * 2 + 3, self.y + NEXT_WINDOW_HEIGHT + 2)
     }
 }
 
