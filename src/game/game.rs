@@ -13,7 +13,7 @@ use termion::raw::{IntoRawMode, RawTerminal};
 use rand::rngs::ThreadRng;
 use rand::thread_rng;
 use rand::seq::SliceRandom;
-use crate::game::tetrimino::{Tetrimino, TetriminoType};
+use crate::game::tetrimino::{Tetrimino, Type};
 
 pub struct Game<R: Read, W: Write> {
     x: u16,
@@ -23,13 +23,19 @@ pub struct Game<R: Read, W: Write> {
     board: Board,
     stdin: Keys<R>,
     stdout: W,
+    state: State,
     current_tetrimino: ActiveTetrimino,
-    next_type: TetriminoType,
-    held_type: Option<TetriminoType>,
+    next_type: Type,
+    held_type: Option<Type>,
     can_hold: bool,
     elapsed: Duration,
     fall_rate: Duration,
     generator: SevenGenerator,
+}
+
+enum State {
+    Playing,
+    Lost
 }
 
 struct ActiveTetrimino {
@@ -49,7 +55,7 @@ struct ActiveTetrimino {
 const LEFT_PANEL_WIDTH: u16 = 17;
 
 const SCORE_WINDOW_HEIGHT: u16 = 8;
-const HELP_WINDOW_HEIGHT: u16 = 12;
+const HELP_WINDOW_HEIGHT: u16 = 13;
 
 const BOARD_WIDTH: u16 = 10;
 const BOARD_HEIGHT: u16 = 20;
@@ -73,6 +79,7 @@ impl<R: Read, W: Write> Game<R, W> {
             board: Board::new(),
             stdin: r.keys(),
             stdout: w.into_raw_mode().unwrap(),
+            state: State::Playing,
             current_tetrimino: Self::initialize_tetrimino(current_ttype),
             next_type: next_ttype,
             held_type: None,
@@ -87,7 +94,13 @@ impl<R: Read, W: Write> Game<R, W> {
         write!(&mut self.stdout, "{}{}{}{}", clear::All, style::Reset, cursor::Goto(1, 1), cursor::Hide)?;
 
         'main: loop {
+            if let State::Lost = self.state {
+                break 'main;
+            }
+
             thread::sleep(Duration::from_millis(50));
+            self.update(Duration::from_millis(50));
+
             match self.stdin.next() {
                 Some(Ok(key)) => {
                     match key {
@@ -108,6 +121,7 @@ impl<R: Read, W: Write> Game<R, W> {
                                 self.current_tetrimino.tetrimino = new_state;
                             }
                         }
+                        Key::Char(' ') => self.drop_current_tetrimino(),
                         Key::Char('c') => self.try_hold_tetrimino(),
                         Key::Char('q') => break 'main,
                         _ => {}
@@ -118,14 +132,13 @@ impl<R: Read, W: Write> Game<R, W> {
 
             self.try_fuse_with_ground();
             self.erase_lines();
+            self.check_game_over();
             self.draw_player_score()?;
             self.draw_help()?;
             self.draw_board()?;
             self.draw_next()?;
             self.draw_held()?;
             self.stdout.flush()?;
-
-            self.update(Duration::from_millis(50));
         }
         write!(self.stdout, "{}{}{}{}", clear::All, style::Reset, cursor::Goto(1, 1), cursor::Show)?;
 
@@ -138,6 +151,21 @@ impl<R: Read, W: Write> Game<R, W> {
         if self.elapsed >= self.fall_rate {
             self.elapsed -= self.fall_rate;
             self.current_tetrimino.y += 1;
+        }
+    }
+
+    fn check_game_over(&mut self) {
+        for col in &self.board.blocks[0] {
+            if let Block::Occupied(_) = col {
+                self.state = State::Lost;
+                break;
+            }
+        }
+    }
+
+    fn drop_current_tetrimino(&mut self) {
+        for _ in 0..BOARD_HEIGHT {
+            self.handle_tetrimino_move(0, 1);
         }
     }
 
@@ -287,15 +315,16 @@ impl<R: Read, W: Write> Game<R, W> {
     }
 
     fn draw_help(&mut self) -> Result<()> {
-        let (x, y) = (self.x, self.y + SCORE_WINDOW_HEIGHT + 2);
+        let (x, y) = (self.x, self.y + SCORE_WINDOW_HEIGHT + 1);
         create_window(&mut self.stdout, x, y, LEFT_PANEL_WIDTH, HELP_WINDOW_HEIGHT)?;
         write!(self.stdout, "{}Ctrls", cursor::Goto(x + 6, y + 2))?;
         write!(self.stdout, "{}left   j, ←", cursor::Goto(x + 3, y + 4))?;
         write!(self.stdout, "{}right  l, →", cursor::Goto(x + 3, y + 5))?;
-        write!(self.stdout, "{}drop   k, ↓", cursor::Goto(x + 3, y + 6))?;
-        write!(self.stdout, "{}rotate x, z", cursor::Goto(x + 3, y + 7))?;
-        write!(self.stdout, "{}hold   c", cursor::Goto(x + 3, y + 8))?;
-        write!(self.stdout, "{}quit   q", cursor::Goto(x + 3, y + 9))
+        write!(self.stdout, "{}down   k, ↓", cursor::Goto(x + 3, y + 6))?;
+        write!(self.stdout, "{}drop   space", cursor::Goto(x + 3, y + 7))?;
+        write!(self.stdout, "{}rotate x, z", cursor::Goto(x + 3, y + 8))?;
+        write!(self.stdout, "{}hold   c", cursor::Goto(x + 3, y + 9))?;
+        write!(self.stdout, "{}quit   q", cursor::Goto(x + 3, y + 10))
     }
 
     fn draw_board(&mut self) -> Result<()> {
@@ -355,7 +384,7 @@ impl<R: Read, W: Write> Game<R, W> {
         Ok(())
     }
 
-    fn draw_tetrimino(&mut self, x: isize, y: isize, bound_x: isize, bound_y: isize, ttype: TetriminoType, state: usize) -> Result<()> {
+    fn draw_tetrimino(&mut self, x: isize, y: isize, bound_x: isize, bound_y: isize, ttype: Type, state: usize) -> Result<()> {
         let block = ttype.get_block(state);
         let color = ttype.get_color();
 
@@ -373,9 +402,9 @@ impl<R: Read, W: Write> Game<R, W> {
         write!(self.stdout, "{}", style::Reset)
     }
 
-    fn initialize_tetrimino(ttype: TetriminoType) -> ActiveTetrimino {
+    fn initialize_tetrimino(ttype: Type) -> ActiveTetrimino {
         let (x, y) = match ttype {
-            TetriminoType::I => (3, -1),
+            Type::I => (3, -1),
             _ => (3, 0)
         };
 
@@ -408,13 +437,13 @@ impl Board {
 
 struct SevenGenerator {
     rng: ThreadRng,
-    types: [TetriminoType; 7],
+    types: [Type; 7],
     idx: usize,
 }
 
 impl SevenGenerator {
     fn new() -> Self {
-        use super::tetrimino::TetriminoType::*;
+        use super::tetrimino::Type::*;
 
         let mut rng = thread_rng();
         let mut pieces = [I, O, T, S, Z, J, L];
@@ -429,7 +458,7 @@ impl SevenGenerator {
 }
 
 impl Iterator for SevenGenerator {
-    type Item = TetriminoType;
+    type Item = Type;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.idx == 6 {

@@ -170,7 +170,7 @@ const BLOCK_L: [[[u8; 4]; 4]; 4] = [
 ];
 
 #[derive(Copy, Clone)]
-pub enum TetriminoType {
+pub enum Type {
     I,
     O,
     T,
@@ -180,39 +180,39 @@ pub enum TetriminoType {
     L,
 }
 
-impl TetriminoType {
+impl Type {
     pub fn get_color(&self) -> Rgb {
         match self {
-            TetriminoType::I => Rgb(0, 255, 255),
-            TetriminoType::O => Rgb(255, 255, 0),
-            TetriminoType::T => Rgb(128, 0, 128),
-            TetriminoType::S => Rgb(0, 128, 0),
-            TetriminoType::Z => Rgb(255, 0, 0),
-            TetriminoType::J => Rgb(0, 0, 255),
-            TetriminoType::L => Rgb(255, 165, 0),
+            Type::I => Rgb(0, 255, 255),
+            Type::O => Rgb(255, 255, 0),
+            Type::T => Rgb(128, 0, 128),
+            Type::S => Rgb(0, 128, 0),
+            Type::Z => Rgb(255, 0, 0),
+            Type::J => Rgb(0, 0, 255),
+            Type::L => Rgb(255, 165, 0),
         }
     }
 
     pub fn get_block(&self, state: usize) -> &[[u8; 4]; 4] {
         match self {
-            TetriminoType::I => BLOCK_I.get(state).unwrap(),
-            TetriminoType::O => &BLOCK_O,
-            TetriminoType::T => BLOCK_T.get(state).unwrap(),
-            TetriminoType::S => BLOCK_S.get(state).unwrap(),
-            TetriminoType::Z => BLOCK_Z.get(state).unwrap(),
-            TetriminoType::J => BLOCK_J.get(state).unwrap(),
-            TetriminoType::L => BLOCK_L.get(state).unwrap(),
+            Type::I => BLOCK_I.get(state).unwrap(),
+            Type::O => &BLOCK_O,
+            Type::T => BLOCK_T.get(state).unwrap(),
+            Type::S => BLOCK_S.get(state).unwrap(),
+            Type::Z => BLOCK_Z.get(state).unwrap(),
+            Type::J => BLOCK_J.get(state).unwrap(),
+            Type::L => BLOCK_L.get(state).unwrap(),
         }
     }
 }
 
 pub struct Tetrimino {
-    pub ttype: TetriminoType,
+    pub ttype: Type,
     pub state: usize,
 }
 
 impl Tetrimino {
-    pub fn new(ttype: TetriminoType) -> Self {
+    pub fn new(ttype: Type) -> Self {
         Tetrimino { ttype, state: 0 }
     }
 
