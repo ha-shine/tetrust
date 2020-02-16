@@ -13,6 +13,7 @@ use termion::raw::{IntoRawMode, RawTerminal};
 use rand::rngs::ThreadRng;
 use rand::thread_rng;
 use rand::seq::SliceRandom;
+use crate::game::tetrimino::{Tetrimino, TetriminoType};
 
 pub struct Game<R: Read, W: Write> {
     x: u16,
@@ -101,7 +102,7 @@ impl<R: Read, W: Write> Game<R, W> {
                             self.current_tetrimino.tetrimino.rotate_clockwise();
                             if !self.can_fit_tetrimino(self.current_tetrimino.x,
                                                        self.current_tetrimino.y,
-                                                       self.current_tetrimino.tetrimino.to_block()) {
+                                                       self.current_tetrimino.tetrimino.get_block()) {
                                 self.current_tetrimino.tetrimino.rotate_counter_clockwise();
                             }
                         }
@@ -109,7 +110,7 @@ impl<R: Read, W: Write> Game<R, W> {
                             self.current_tetrimino.tetrimino.rotate_counter_clockwise();
                             if !self.can_fit_tetrimino(self.current_tetrimino.x,
                                                        self.current_tetrimino.y,
-                                                       self.current_tetrimino.tetrimino.to_block()) {
+                                                       self.current_tetrimino.tetrimino.get_block()) {
                                 self.current_tetrimino.tetrimino.rotate_clockwise();
                             }
                         }
@@ -154,10 +155,10 @@ impl<R: Read, W: Write> Game<R, W> {
         }
 
         if let Some(current) = self.held_tetrimino.take() {
-            self.held_tetrimino = Some(self.current_tetrimino.tetrimino.tetrimino_type);
+            self.held_tetrimino = Some(self.current_tetrimino.tetrimino.ttype);
             self.current_tetrimino = Self::next_tetrimino_with_type(current);
         } else {
-            self.held_tetrimino = Some(self.current_tetrimino.tetrimino.tetrimino_type);
+            self.held_tetrimino = Some(self.current_tetrimino.tetrimino.ttype);
             self.current_tetrimino = Self::next_tetrimino(&mut self.generator);
         }
 
@@ -168,7 +169,7 @@ impl<R: Read, W: Write> Game<R, W> {
         let new_x = self.current_tetrimino.x as isize + dx;
         let new_y = self.current_tetrimino.y as isize + dy;
 
-        if self.can_fit_tetrimino(new_x, new_y, self.current_tetrimino.tetrimino.to_block()) {
+        if self.can_fit_tetrimino(new_x, new_y, self.current_tetrimino.tetrimino.get_block()) {
             self.current_tetrimino.x = new_x;
             self.current_tetrimino.y = new_y;
         }
@@ -197,7 +198,7 @@ impl<R: Read, W: Write> Game<R, W> {
     }
 
     fn try_fuse_with_ground(&mut self) {
-        let tetrimino_block = self.current_tetrimino.tetrimino.to_block();
+        let tetrimino_block = self.current_tetrimino.tetrimino.get_block();
 
         let mut should_fuse = false;
 
@@ -214,7 +215,7 @@ impl<R: Read, W: Write> Game<R, W> {
             for (y, row) in tetrimino_block.iter().enumerate() {
                 for (x, col) in row.iter().enumerate() {
                     if *col == 1 {
-                        let rgb = self.current_tetrimino.tetrimino.to_color();
+                        let rgb = self.current_tetrimino.tetrimino.get_color();
                         let x = self.current_tetrimino.x + x as isize;
                         let y = self.current_tetrimino.y + y as isize;
                         self.board.blocks[y as usize][x as usize] = Block::Occupied(rgb);
@@ -326,13 +327,13 @@ impl<R: Read, W: Write> Game<R, W> {
         }
 
         // draw current tetrimino
-        let tetrimino_block = self.current_tetrimino.tetrimino.to_block();
+        let tetrimino_block = self.current_tetrimino.tetrimino.get_block();
         for (y, row) in tetrimino_block.iter().enumerate() {
             for (x, col) in row.iter().enumerate() {
                 if *col == 1 {
                     let x = init_x as isize + x as isize * 2 + self.current_tetrimino.x * 2 + 1;
                     let y = init_y as isize + y as isize + self.current_tetrimino.y + 1;
-                    let tetrimino_color = self.current_tetrimino.tetrimino.to_color();
+                    let tetrimino_color = self.current_tetrimino.tetrimino.get_color();
                     write!(self.stdout, "{}{}  ", cursor::Goto(x as u16, y as u16), Bg(tetrimino_color))?;
                 }
             }
@@ -455,247 +456,6 @@ impl Board {
     }
 }
 
-#[derive(Copy, Clone)]
-enum TetriminoType {
-    I,
-    O,
-    T,
-    S,
-    Z,
-    J,
-    L,
-}
-
-impl TetriminoType {
-    pub fn get_color(&self) -> Rgb {
-        match self {
-            TetriminoType::I => Rgb(0, 255, 255),
-            TetriminoType::O => Rgb(255, 255, 0),
-            TetriminoType::T => Rgb(128, 0, 128),
-            TetriminoType::S => Rgb(0, 128, 0),
-            TetriminoType::Z => Rgb(255, 0, 0),
-            TetriminoType::J => Rgb(0, 0, 255),
-            TetriminoType::L => Rgb(255, 165, 0),
-        }
-    }
-
-    pub fn get_block(&self, state: usize) -> &[[u8; 4]; 4] {
-        match self {
-            TetriminoType::I => {
-                [
-                    [
-                        [0, 0, 0, 0],
-                        [1, 1, 1, 1],
-                        [0, 0, 0, 0],
-                        [0, 0, 0, 0],
-                    ],
-                    [
-                        [0, 0, 1, 0],
-                        [0, 0, 1, 0],
-                        [0, 0, 1, 0],
-                        [0, 0, 1, 0],
-                    ],
-                    [
-                        [0, 0, 0, 0],
-                        [0, 0, 0, 0],
-                        [1, 1, 1, 1],
-                        [0, 0, 0, 0],
-                    ],
-                    [
-                        [0, 1, 0, 0],
-                        [0, 1, 0, 0],
-                        [0, 1, 0, 0],
-                        [0, 1, 0, 0],
-                    ]
-                ].get(state).unwrap()
-            }
-            TetriminoType::O => {
-                &[
-                    [0, 1, 1, 0],
-                    [0, 1, 1, 0],
-                    [0, 0, 0, 0],
-                    [0, 0, 0, 0],
-                ]
-            }
-            TetriminoType::T => {
-                [
-                    [
-                        [0, 1, 0, 0],
-                        [1, 1, 1, 0],
-                        [0, 0, 0, 0],
-                        [0, 0, 0, 0],
-                    ],
-                    [
-                        [0, 1, 0, 0],
-                        [0, 1, 1, 0],
-                        [0, 1, 0, 0],
-                        [0, 0, 0, 0],
-                    ],
-                    [
-                        [0, 0, 0, 0],
-                        [1, 1, 1, 0],
-                        [0, 1, 0, 0],
-                        [0, 0, 0, 0],
-                    ],
-                    [
-                        [0, 1, 0, 0],
-                        [1, 1, 0, 0],
-                        [0, 1, 0, 0],
-                        [0, 0, 0, 0],
-                    ]
-                ].get(state).unwrap()
-            }
-            TetriminoType::S => {
-                [
-                    [
-                        [0, 1, 1, 0],
-                        [1, 1, 0, 0],
-                        [0, 0, 0, 0],
-                        [0, 0, 0, 0],
-                    ],
-                    [
-                        [0, 1, 0, 0],
-                        [0, 1, 1, 0],
-                        [0, 0, 1, 0],
-                        [0, 0, 0, 0],
-                    ],
-                    [
-                        [0, 0, 0, 0],
-                        [0, 1, 1, 0],
-                        [1, 1, 0, 0],
-                        [0, 0, 0, 0],
-                    ],
-                    [
-                        [1, 0, 0, 0],
-                        [1, 1, 0, 0],
-                        [0, 1, 1, 0],
-                        [0, 0, 0, 0],
-                    ]
-                ].get(state).unwrap()
-            }
-            TetriminoType::Z => {
-                [
-                    [
-                        [1, 1, 0, 0],
-                        [0, 1, 1, 0],
-                        [0, 0, 0, 0],
-                        [0, 0, 0, 0],
-                    ],
-                    [
-                        [0, 0, 1, 0],
-                        [0, 1, 1, 0],
-                        [0, 1, 0, 0],
-                        [0, 0, 0, 0],
-                    ],
-                    [
-                        [0, 0, 0, 0],
-                        [1, 1, 0, 0],
-                        [0, 1, 1, 0],
-                        [0, 0, 0, 0],
-                    ],
-                    [
-                        [0, 1, 0, 0],
-                        [1, 1, 0, 0],
-                        [1, 0, 0, 0],
-                        [0, 0, 0, 0],
-                    ]
-                ].get(state).unwrap()
-            }
-            TetriminoType::J => {
-                [
-                    [
-                        [1, 0, 0, 0],
-                        [1, 1, 1, 0],
-                        [0, 0, 0, 0],
-                        [0, 0, 0, 0],
-                    ],
-                    [
-                        [0, 1, 1, 0],
-                        [0, 1, 0, 0],
-                        [0, 1, 0, 0],
-                        [0, 0, 0, 0],
-                    ],
-                    [
-                        [0, 0, 0, 0],
-                        [1, 1, 1, 0],
-                        [0, 0, 1, 0],
-                        [0, 0, 0, 0],
-                    ],
-                    [
-                        [0, 1, 0, 0],
-                        [0, 1, 0, 0],
-                        [1, 1, 0, 0],
-                        [0, 0, 0, 0],
-                    ]
-                ].get(state).unwrap()
-            }
-            TetriminoType::L => {
-                [
-                    [
-                        [0, 0, 1, 0],
-                        [1, 1, 1, 0],
-                        [0, 0, 0, 0],
-                        [0, 0, 0, 0],
-                    ],
-                    [
-                        [0, 1, 0, 0],
-                        [0, 1, 0, 0],
-                        [0, 1, 1, 0],
-                        [0, 0, 0, 0],
-                    ],
-                    [
-                        [1, 1, 1, 0],
-                        [1, 0, 0, 0],
-                        [0, 0, 0, 0],
-                        [0, 0, 0, 0],
-                    ],
-                    [
-                        [1, 1, 0, 0],
-                        [0, 1, 0, 0],
-                        [0, 1, 0, 0],
-                        [0, 0, 0, 0],
-                    ]
-                ].get(state).unwrap()
-            }
-        }
-    }
-}
-
-struct Tetrimino {
-    tetrimino_type: TetriminoType,
-    state: usize,
-}
-
-impl Tetrimino {
-    pub fn new(tetrimino_type: TetriminoType) -> Self {
-        Tetrimino { tetrimino_type, state: 0 }
-    }
-
-    pub fn to_color(&self) -> Rgb {
-        self.tetrimino_type.get_color()
-    }
-
-    pub fn to_block(&self) -> &[[u8; 4]; 4] {
-        self.tetrimino_type.get_block(self.state)
-    }
-
-    pub fn rotate_clockwise(&mut self) {
-        if self.state == 0 {
-            self.state = 3
-        } else {
-            self.state -= 1;
-        }
-    }
-
-    pub fn rotate_counter_clockwise(&mut self) {
-        if self.state == 3 {
-            self.state = 0
-        } else {
-            self.state += 1
-        }
-    }
-}
-
 struct SevenGenerator {
     rng: ThreadRng,
     pieces: [TetriminoType; 7],
@@ -705,7 +465,7 @@ struct SevenGenerator {
 impl SevenGenerator {
 
     fn new() -> Self {
-        use TetriminoType::*;
+        use super::tetrimino::TetriminoType::*;
 
         let mut rng = thread_rng();
         let mut pieces = [I, O, T, S, Z, J, L];
