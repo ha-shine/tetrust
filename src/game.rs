@@ -434,7 +434,7 @@ impl<R: Read, W: Write> Game<R, W> {
     }
 
     fn held_window_xy(&self) -> (u16, u16) {
-        (self.x + LEFT_PANEL_WIDTH + BOARD_WIDTH * 2 + 3, self.y + NEXT_WINDOW_HEIGHT + 1)
+        (self.x + LEFT_PANEL_WIDTH + BOARD_WIDTH * 2 + 3, self.y + NEXT_WINDOW_HEIGHT + 2)
     }
 }
 
