@@ -18,8 +18,8 @@ use crate::game::tetrimino::{Tetrimino, TetriminoType};
 pub struct Game<R: Read, W: Write> {
     x: u16,
     y: u16,
-    score: u16,
-    lines: u16,
+    score: usize,
+    lines: usize,
     board: Board,
     stdin: Keys<R>,
     stdout: W,
@@ -193,7 +193,6 @@ impl<R: Read, W: Write> Game<R, W> {
 
     fn try_fuse_with_ground(&mut self) {
         let tetrimino_block = self.current_tetrimino.tetrimino.get_block();
-
         let mut should_fuse = false;
 
         for (y, row) in tetrimino_block.iter().enumerate() {
@@ -248,24 +247,14 @@ impl<R: Read, W: Write> Game<R, W> {
         let mut erasable_lines = Vec::new();
 
         // doesn't need to iterate through all the boards, can optimise later
-        for y in (0..BOARD_HEIGHT).rev() {
-            for x in (0..BOARD_WIDTH).rev() {
-                match self.board.blocks[y as usize][x as usize] {
-                    Block::Occupied(_) if x == 0 => {
-                        erasable_lines.push(y);
-                    }
-                    Block::Occupied(_) => {
-                        continue;
-                    }
-                    Block::Free => {
-                        break;
-                    }
-                }
+        for (y, row) in self.board.blocks.iter().enumerate() {
+            if Self::can_erase_row(row) {
+                erasable_lines.push(y);
             }
         }
 
-        self.lines += erasable_lines.len() as u16;
-        self.score += erasable_lines.len() as u16 * 10;
+        self.lines += erasable_lines.len();
+        self.score += erasable_lines.len() * 10;
 
         // push down the lines and erase the top line
         for line in erasable_lines {
@@ -278,6 +267,16 @@ impl<R: Read, W: Write> Game<R, W> {
                 self.board.blocks[0][x as usize] = Block::Free;
             }
         }
+    }
+
+    fn can_erase_row(row: &[Block; BOARD_WIDTH as usize]) -> bool {
+        for col in row {
+            if let Block::Free = col {
+                return false;
+            }
+        }
+
+        true
     }
 
     fn draw_player_score(&mut self) -> Result<()> {
@@ -328,7 +327,7 @@ impl<R: Read, W: Write> Game<R, W> {
     }
 
     fn draw_next(&mut self) -> Result<()> {
-        let (x, y) = (self.x + LEFT_PANEL_WIDTH + BOARD_WIDTH * 2 + 3, self.y);
+        let (x, y) = (self.x + LEFT_PANEL_WIDTH + BOARD_WIDTH * 2 + 4, self.y);
         create_window(&mut self.stdout, x, y, RIGHT_PANEL_WIDTH, NEXT_WINDOW_HEIGHT)?;
         write!(self.stdout, "{}Next", cursor::Goto(x + 4, y + 2))?;
 
@@ -342,7 +341,7 @@ impl<R: Read, W: Write> Game<R, W> {
     }
 
     fn draw_held(&mut self) -> Result<()> {
-        let (x, y) = (self.x + LEFT_PANEL_WIDTH + BOARD_WIDTH * 2 + 3, self.y + NEXT_WINDOW_HEIGHT + 2);
+        let (x, y) = (self.x + LEFT_PANEL_WIDTH + BOARD_WIDTH * 2 + 4, self.y + NEXT_WINDOW_HEIGHT + 2);
         create_window(&mut self.stdout, x, y, RIGHT_PANEL_WIDTH, HELD_WINDOW_HEIGHT)?;
         write!(self.stdout, "{}Held", cursor::Goto(x + 4, y + 2))?;
 
