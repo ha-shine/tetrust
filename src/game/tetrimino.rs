@@ -224,17 +224,23 @@ impl Tetrimino {
         self.ttype.get_block(self.state)
     }
 
-    pub fn rotate_clockwise(&mut self) {
-        match self.state {
-            0 => self.state = 3,
-            _ => self.state -= 1
+    pub fn rotate_clockwise(&self) -> Tetrimino {
+        Tetrimino {
+            ttype: self.ttype,
+            state: match self.state {
+                0 => 3,
+                _ => self.state - 1
+            }
         }
     }
 
-    pub fn rotate_counter_clockwise(&mut self) {
-        match self.state {
-            3 => self.state = 0,
-            _ => self.state += 1
+    pub fn rotate_counter_clockwise(&self) -> Tetrimino {
+        Tetrimino {
+            ttype: self.ttype,
+            state: match self.state {
+                3 => 0,
+                _ => self.state + 1
+            }
         }
     }
 }

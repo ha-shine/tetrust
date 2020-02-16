@@ -95,19 +95,17 @@ impl<R: Read, W: Write> Game<R, W> {
                         Key::Char('l') | Key::Right => self.handle_tetrimino_move(1, 0),
                         Key::Char('k') | Key::Down => self.handle_tetrimino_move(0, 1),
                         Key::Char('x') => {
-                            self.current_tetrimino.tetrimino.rotate_clockwise();
-                            if !self.can_fit_tetrimino(self.current_tetrimino.x,
-                                                       self.current_tetrimino.y,
-                                                       self.current_tetrimino.tetrimino.get_block()) {
-                                self.current_tetrimino.tetrimino.rotate_counter_clockwise();
+                            let new_state = self.current_tetrimino.tetrimino.rotate_clockwise();
+                            if self.can_fit_tetrimino(self.current_tetrimino.x, self.current_tetrimino.y,
+                                                      new_state.get_block()) {
+                                self.current_tetrimino.tetrimino = new_state;
                             }
                         }
                         Key::Char('z') => {
-                            self.current_tetrimino.tetrimino.rotate_counter_clockwise();
-                            if !self.can_fit_tetrimino(self.current_tetrimino.x,
-                                                       self.current_tetrimino.y,
-                                                       self.current_tetrimino.tetrimino.get_block()) {
-                                self.current_tetrimino.tetrimino.rotate_clockwise();
+                            let new_state = self.current_tetrimino.tetrimino.rotate_counter_clockwise();
+                            if self.can_fit_tetrimino(self.current_tetrimino.x, self.current_tetrimino.y,
+                                                      new_state.get_block()) {
+                                self.current_tetrimino.tetrimino = new_state;
                             }
                         }
                         Key::Char('c') => self.try_hold_tetrimino(),
@@ -153,7 +151,8 @@ impl<R: Read, W: Write> Game<R, W> {
             self.current_tetrimino = Self::initialize_tetrimino(current);
         } else {
             self.held_type = Some(self.current_tetrimino.tetrimino.ttype);
-            self.current_tetrimino = Self::initialize_tetrimino(self.generator.next().unwrap());
+            self.current_tetrimino = Self::initialize_tetrimino(self.next_type);
+            self.next_type = self.generator.next().unwrap();
         }
 
         self.can_hold = false;
