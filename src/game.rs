@@ -20,6 +20,9 @@ pub struct Game<R: Read, W: Write> {
     stdin: Keys<R>,
     stdout: W,
     current_tetrimino: CurrentTetrimino,
+    next_tetrimino: TetriminoType,
+    held_tetrimino: Option<TetriminoType>,
+    can_hold: bool,
     elapsed: Duration,
     fall_rate: Duration,
 }
@@ -46,6 +49,10 @@ const HELP_WINDOW_HEIGHT: u16 = 12;
 const BOARD_WIDTH: u16 = 10;
 const BOARD_HEIGHT: u16 = 20;
 
+const RIGHT_PANEL_WIDTH: u16 = 12;
+const NEXT_WINDOW_HEIGHT: u16 = 10;
+const HELD_WINDOW_HEIGHT: u16 = 10;
+
 
 impl<R: Read, W: Write> Game<R, W> {
     pub fn new(x: u16, y: u16, r: R, w: W) -> Game<R, RawTerminal<W>> {
@@ -58,6 +65,9 @@ impl<R: Read, W: Write> Game<R, W> {
             stdin: r.keys(),
             stdout: w.into_raw_mode().unwrap(),
             current_tetrimino: Self::next_tetrimino(),
+            next_tetrimino: Self::generate_tetrimino(),
+            held_tetrimino: None,
+            can_hold: true,
             elapsed: Duration::from_millis(0),
             fall_rate: Duration::from_millis(500),
         }
@@ -82,21 +92,23 @@ impl<R: Read, W: Write> Game<R, W> {
                         }
                         Key::Char('x') => {
                             self.current_tetrimino.tetrimino.rotate_clockwise();
-                            if !self.can_fit_tetrimino(self.current_tetrimino.x as isize,
-                                                       self.current_tetrimino.y as isize,
+                            if !self.can_fit_tetrimino(self.current_tetrimino.x,
+                                                       self.current_tetrimino.y,
                                                        self.current_tetrimino.tetrimino.to_block()) {
                                 self.current_tetrimino.tetrimino.rotate_counter_clockwise();
                             }
-                        },
+                        }
                         Key::Char('z') => {
                             self.current_tetrimino.tetrimino.rotate_counter_clockwise();
-                            if !self.can_fit_tetrimino(self.current_tetrimino.x as isize,
-                                                       self.current_tetrimino.y as isize,
+                            if !self.can_fit_tetrimino(self.current_tetrimino.x,
+                                                       self.current_tetrimino.y,
                                                        self.current_tetrimino.tetrimino.to_block()) {
                                 self.current_tetrimino.tetrimino.rotate_clockwise();
                             }
                         }
-                        Key::Char('c') => {}
+                        Key::Char('c') => {
+                            self.try_hold_tetrimino();
+                        }
                         Key::Char('q') => break 'main,
                         _ => {}
                     }
@@ -108,6 +120,8 @@ impl<R: Read, W: Write> Game<R, W> {
             self.draw_player_score()?;
             self.draw_help()?;
             self.draw_board()?;
+            self.draw_next()?;
+            self.draw_held()?;
             self.stdout.flush()?;
 
             self.update(Duration::from_millis(50));
@@ -124,6 +138,22 @@ impl<R: Read, W: Write> Game<R, W> {
             self.elapsed -= self.fall_rate;
             self.current_tetrimino.y += 1;
         }
+    }
+
+    fn try_hold_tetrimino(&mut self) {
+        if !self.can_hold {
+            return;
+        }
+
+        if let Some(current) = self.held_tetrimino.take() {
+            self.held_tetrimino = Some(self.current_tetrimino.tetrimino.tetrimino_type);
+            self.current_tetrimino = Self::next_tetrimino_with_type(current);
+        } else {
+            self.held_tetrimino = Some(self.current_tetrimino.tetrimino.tetrimino_type);
+            self.current_tetrimino = Self::next_tetrimino();
+        }
+
+        self.can_hold = false;
     }
 
     fn handle_tetrimino_move(&mut self, dx: isize, dy: isize) {
@@ -184,7 +214,9 @@ impl<R: Read, W: Write> Game<R, W> {
                 }
             }
 
-            self.current_tetrimino = Self::next_tetrimino()
+            self.current_tetrimino = Self::next_tetrimino_with_type(self.next_tetrimino);
+            self.next_tetrimino = Self::generate_tetrimino();
+            self.can_hold = true;
         }
     }
 
@@ -265,11 +297,61 @@ impl<R: Read, W: Write> Game<R, W> {
         write!(self.stdout, "{}", style::Reset)
     }
 
+    fn draw_next(&mut self) -> Result<()> {
+        let (win_x, win_y) = self.next_window_xy();
+        create_window(&mut self.stdout, win_x, win_y, RIGHT_PANEL_WIDTH, NEXT_WINDOW_HEIGHT)?;
+        write!(self.stdout, "{}Next", cursor::Goto(win_x + 4, win_y + 2))?;
+
+        let block = self.next_tetrimino.get_block(0);
+        for (y, row) in block.iter().enumerate() {
+            for (x, col) in row.iter().enumerate() {
+                if *col == 1 {
+                    let x = win_x + x as u16 * 2 + 2;
+                    let y = win_y + y as u16 + 4;
+                    let color = self.next_tetrimino.get_color();
+                    write!(self.stdout, "{}{}  ", cursor::Goto(x, y), Bg(color))?;
+                }
+            }
+        }
+
+        write!(self.stdout, "{}", style::Reset)
+    }
+
+    fn draw_held(&mut self) -> Result<()> {
+        let (win_x, win_y) = self.held_window_xy();
+        create_window(&mut self.stdout, win_x, win_y, RIGHT_PANEL_WIDTH, HELD_WINDOW_HEIGHT)?;
+        write!(self.stdout, "{}Held", cursor::Goto(win_x + 4, win_y + 2))?;
+
+        if let Some(held) = self.held_tetrimino {
+            let block = held.get_block(0);
+            for (y, row) in block.iter().enumerate() {
+                for (x, col) in row.iter().enumerate() {
+                    if *col == 1 {
+                        let x = win_x + x as u16 * 2 + 2;
+                        let y = win_y + y as u16 + 4;
+                        let color = held.get_color();
+                        write!(self.stdout, "{}{}  ", cursor::Goto(x, y), Bg(color))?;
+                    }
+                }
+            }
+        }
+
+        write!(self.stdout, "{}", style::Reset)
+    }
+
+    fn generate_tetrimino() -> TetriminoType {
+        TetriminoType::L
+    }
+
     fn next_tetrimino() -> CurrentTetrimino {
-        let next_type = TetriminoType::L;
-        let (next_x, next_y) = Self::apply_initial_displacement(&next_type, 3, 0);
+        let next_type = Self::generate_tetrimino();
+        Self::next_tetrimino_with_type(next_type)
+    }
+
+    fn next_tetrimino_with_type(ttype: TetriminoType) -> CurrentTetrimino {
+        let (next_x, next_y) = Self::apply_initial_displacement(&ttype, 3, 0);
         let current_tetrimino = CurrentTetrimino {
-            tetrimino: Tetrimino::new(next_type),
+            tetrimino: Tetrimino::new(ttype),
             x: next_x,
             y: next_y,
         };
@@ -296,6 +378,14 @@ impl<R: Read, W: Write> Game<R, W> {
     fn tetris_board_xy(&self) -> (u16, u16) {
         (self.x + LEFT_PANEL_WIDTH + 1, self.y)
     }
+
+    fn next_window_xy(&self) -> (u16, u16) {
+        (self.x + LEFT_PANEL_WIDTH + BOARD_WIDTH * 2 + 3, self.y)
+    }
+
+    fn held_window_xy(&self) -> (u16, u16) {
+        (self.x + LEFT_PANEL_WIDTH + BOARD_WIDTH * 2 + 3, self.y + NEXT_WINDOW_HEIGHT + 1)
+    }
 }
 
 pub struct Board {
@@ -315,6 +405,7 @@ impl Board {
     }
 }
 
+#[derive(Copy, Clone)]
 enum TetriminoType {
     I,
     O,
@@ -325,18 +416,9 @@ enum TetriminoType {
     L,
 }
 
-struct Tetrimino {
-    tetrimino_type: TetriminoType,
-    state: usize,
-}
-
-impl Tetrimino {
-    pub fn new(tetrimino_type: TetriminoType) -> Self {
-        Tetrimino { tetrimino_type, state: 0 }
-    }
-
-    pub fn to_color(&self) -> Rgb {
-        match self.tetrimino_type {
+impl TetriminoType {
+    pub fn get_color(&self) -> Rgb {
+        match self {
             TetriminoType::I => Rgb(0, 255, 255),
             TetriminoType::O => Rgb(255, 255, 0),
             TetriminoType::T => Rgb(128, 0, 128),
@@ -347,8 +429,8 @@ impl Tetrimino {
         }
     }
 
-    pub fn to_block(&self) -> &[[u8; 4]; 4] {
-        match self.tetrimino_type {
+    pub fn get_block(&self, state: usize) -> &[[u8; 4]; 4] {
+        match self {
             TetriminoType::I => {
                 [
                     [
@@ -375,7 +457,7 @@ impl Tetrimino {
                         [0, 1, 0, 0],
                         [0, 1, 0, 0],
                     ]
-                ].get(self.state).unwrap()
+                ].get(state).unwrap()
             }
             TetriminoType::O => {
                 &[
@@ -411,7 +493,7 @@ impl Tetrimino {
                         [0, 1, 0, 0],
                         [0, 0, 0, 0],
                     ]
-                ].get(self.state).unwrap()
+                ].get(state).unwrap()
             }
             TetriminoType::S => {
                 [
@@ -439,7 +521,7 @@ impl Tetrimino {
                         [0, 1, 1, 0],
                         [0, 0, 0, 0],
                     ]
-                ].get(self.state).unwrap()
+                ].get(state).unwrap()
             }
             TetriminoType::Z => {
                 [
@@ -467,7 +549,7 @@ impl Tetrimino {
                         [1, 0, 0, 0],
                         [0, 0, 0, 0],
                     ]
-                ].get(self.state).unwrap()
+                ].get(state).unwrap()
             }
             TetriminoType::J => {
                 [
@@ -495,7 +577,7 @@ impl Tetrimino {
                         [1, 1, 0, 0],
                         [0, 0, 0, 0],
                     ]
-                ].get(self.state).unwrap()
+                ].get(state).unwrap()
             }
             TetriminoType::L => {
                 [
@@ -523,9 +605,28 @@ impl Tetrimino {
                         [0, 1, 0, 0],
                         [0, 0, 0, 0],
                     ]
-                ].get(self.state).unwrap()
+                ].get(state).unwrap()
             }
         }
+    }
+}
+
+struct Tetrimino {
+    tetrimino_type: TetriminoType,
+    state: usize,
+}
+
+impl Tetrimino {
+    pub fn new(tetrimino_type: TetriminoType) -> Self {
+        Tetrimino { tetrimino_type, state: 0 }
+    }
+
+    pub fn to_color(&self) -> Rgb {
+        self.tetrimino_type.get_color()
+    }
+
+    pub fn to_block(&self) -> &[[u8; 4]; 4] {
+        self.tetrimino_type.get_block(self.state)
     }
 
     pub fn rotate_clockwise(&mut self) {
