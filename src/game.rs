@@ -117,6 +117,7 @@ impl<R: Read, W: Write> Game<R, W> {
             }
 
             self.try_fuse_with_ground();
+            self.erase_lines();
             self.draw_player_score()?;
             self.draw_help()?;
             self.draw_board()?;
@@ -238,6 +239,42 @@ impl<R: Read, W: Write> Game<R, W> {
                 }
             }
             _ => false
+        }
+    }
+
+    fn erase_lines(&mut self) {
+        let mut erasable_lines = Vec::new();
+
+        // doesn't need to iterate through all the boards, can optimise later
+        for y in (0..BOARD_HEIGHT).rev() {
+            for x in (0..BOARD_WIDTH).rev() {
+                match self.board.blocks[y as usize][x as usize] {
+                    Block::Occupied(_) if x == 0 => {
+                        erasable_lines.push(y);
+                    }
+                    Block::Occupied(_) => {
+                        continue
+                    }
+                    Block::Free => {
+                        break
+                    }
+                }
+            }
+        }
+
+        self.lines += erasable_lines.len() as u16;
+        self.score += erasable_lines.len() as u16 * 10;
+
+        // push down the lines and erase the top line
+        for line in erasable_lines {
+            for y in (0..line).rev() {
+                for x in 0..BOARD_WIDTH {
+                    self.board.blocks[y as usize + 1][x as usize] = self.board.blocks[y as usize][x as usize];
+                }
+            }
+            for x in 0..BOARD_WIDTH {
+                self.board.blocks[0][x as usize] = Block::Free;
+            }
         }
     }
 
