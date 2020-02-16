@@ -10,6 +10,9 @@ use termion::input::TermRead;
 use termion::event::Key;
 use termion::input::Keys;
 use termion::raw::{IntoRawMode, RawTerminal};
+use rand::rngs::ThreadRng;
+use rand::thread_rng;
+use rand::seq::SliceRandom;
 
 pub struct Game<R: Read, W: Write> {
     x: u16,
@@ -25,6 +28,7 @@ pub struct Game<R: Read, W: Write> {
     can_hold: bool,
     elapsed: Duration,
     fall_rate: Duration,
+    generator: SevenGenerator,
 }
 
 struct CurrentTetrimino {
@@ -56,6 +60,8 @@ const HELD_WINDOW_HEIGHT: u16 = 10;
 
 impl<R: Read, W: Write> Game<R, W> {
     pub fn new(x: u16, y: u16, r: R, w: W) -> Game<R, RawTerminal<W>> {
+        let mut generator = SevenGenerator::new();
+
         Game {
             x,
             y,
@@ -64,12 +70,13 @@ impl<R: Read, W: Write> Game<R, W> {
             board: Board::new(),
             stdin: r.keys(),
             stdout: w.into_raw_mode().unwrap(),
-            current_tetrimino: Self::next_tetrimino(),
-            next_tetrimino: Self::generate_tetrimino(),
+            current_tetrimino: Self::next_tetrimino(&mut generator),
+            next_tetrimino: Self::generate_tetrimino(&mut generator),
             held_tetrimino: None,
             can_hold: true,
             elapsed: Duration::from_millis(0),
             fall_rate: Duration::from_millis(500),
+            generator,
         }
     }
 
@@ -151,7 +158,7 @@ impl<R: Read, W: Write> Game<R, W> {
             self.current_tetrimino = Self::next_tetrimino_with_type(current);
         } else {
             self.held_tetrimino = Some(self.current_tetrimino.tetrimino.tetrimino_type);
-            self.current_tetrimino = Self::next_tetrimino();
+            self.current_tetrimino = Self::next_tetrimino(&mut self.generator);
         }
 
         self.can_hold = false;
@@ -216,7 +223,7 @@ impl<R: Read, W: Write> Game<R, W> {
             }
 
             self.current_tetrimino = Self::next_tetrimino_with_type(self.next_tetrimino);
-            self.next_tetrimino = Self::generate_tetrimino();
+            self.next_tetrimino = Self::generate_tetrimino(&mut self.generator);
             self.can_hold = true;
         }
     }
@@ -342,11 +349,14 @@ impl<R: Read, W: Write> Game<R, W> {
         let block = self.next_tetrimino.get_block(0);
         for (y, row) in block.iter().enumerate() {
             for (x, col) in row.iter().enumerate() {
+                let x = win_x + x as u16 * 2 + 2;
+                let y = win_y + y as u16 + 4;
+
                 if *col == 1 {
-                    let x = win_x + x as u16 * 2 + 2;
-                    let y = win_y + y as u16 + 4;
                     let color = self.next_tetrimino.get_color();
-                    write!(self.stdout, "{}{}  ", cursor::Goto(x, y), Bg(color))?;
+                    write!(self.stdout, "{}{}  {}", cursor::Goto(x, y), Bg(color), style::Reset)?;
+                } else {
+                    write!(self.stdout, "{}  ", cursor::Goto(x, y))?;
                 }
             }
         }
@@ -363,11 +373,14 @@ impl<R: Read, W: Write> Game<R, W> {
             let block = held.get_block(0);
             for (y, row) in block.iter().enumerate() {
                 for (x, col) in row.iter().enumerate() {
+                    let x = win_x + x as u16 * 2 + 2;
+                    let y = win_y + y as u16 + 4;
+
                     if *col == 1 {
-                        let x = win_x + x as u16 * 2 + 2;
-                        let y = win_y + y as u16 + 4;
                         let color = held.get_color();
-                        write!(self.stdout, "{}{}  ", cursor::Goto(x, y), Bg(color))?;
+                        write!(self.stdout, "{}{}  {}", cursor::Goto(x, y), Bg(color), style::Reset)?;
+                    } else {
+                        write!(self.stdout, "{}  ", cursor::Goto(x, y))?;
                     }
                 }
             }
@@ -376,12 +389,12 @@ impl<R: Read, W: Write> Game<R, W> {
         write!(self.stdout, "{}", style::Reset)
     }
 
-    fn generate_tetrimino() -> TetriminoType {
-        TetriminoType::L
+    fn generate_tetrimino(rng: &mut SevenGenerator) -> TetriminoType {
+        rng.next().unwrap()
     }
 
-    fn next_tetrimino() -> CurrentTetrimino {
-        let next_type = Self::generate_tetrimino();
+    fn next_tetrimino(rng: &mut SevenGenerator) -> CurrentTetrimino {
+        let next_type = Self::generate_tetrimino(rng);
         Self::next_tetrimino_with_type(next_type)
     }
 
@@ -680,5 +693,44 @@ impl Tetrimino {
         } else {
             self.state += 1
         }
+    }
+}
+
+struct SevenGenerator {
+    rng: ThreadRng,
+    pieces: [TetriminoType; 7],
+    idx: usize
+}
+
+impl SevenGenerator {
+
+    fn new() -> Self {
+        use TetriminoType::*;
+
+        let mut rng = thread_rng();
+        let mut pieces = [I, O, T, S, Z, J, L];
+        pieces.shuffle(&mut rng);
+
+        SevenGenerator {
+            rng,
+            pieces,
+            idx: 0,
+        }
+    }
+}
+
+impl Iterator for SevenGenerator {
+    type Item = TetriminoType;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.idx == 6 {
+            // generate again
+            self.idx = 0;
+            self.pieces.shuffle(&mut self.rng);
+        }
+
+        let current = self.pieces[self.idx];
+        self.idx += 1;
+        Some(current)
     }
 }
