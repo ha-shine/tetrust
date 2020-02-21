@@ -7,7 +7,7 @@ Play Tetris in your CLI!
 
 ```
 git clone https://github.com/ha-shine/tetrust
-cd testrust
+cd distrust
 cargo run
 ```
 
