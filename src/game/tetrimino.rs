@@ -225,20 +225,14 @@ impl Tetrimino {
     pub fn rotate_clockwise(&self) -> Tetrimino {
         Tetrimino {
             ttype: self.ttype,
-            state: match self.state {
-                0 => 3,
-                _ => self.state - 1
-            },
+            state: (self.state + 3) % 4
         }
     }
 
     pub fn rotate_counter_clockwise(&self) -> Tetrimino {
         Tetrimino {
             ttype: self.ttype,
-            state: match self.state {
-                3 => 0,
-                _ => self.state + 1
-            },
+            state: (self.state + 1) % 4
         }
     }
 }
